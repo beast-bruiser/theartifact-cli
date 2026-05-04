@@ -4,3 +4,4 @@ docs/*
 .codex
 .gemini
 theartifact-cli
+.artifact

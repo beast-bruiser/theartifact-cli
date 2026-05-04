@@ -51,7 +51,7 @@ func NewSession(client *api.Client, workspaceID, workspaceName string) *Session 
 
 // Run starts the interactive REPL loop, blocks until the user exits.
 func (s *Session) Run() {
-	s.printWelcome()
+	ui.PrintSplash(s.workspaceName)
 	s.setupSignalHandler()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -252,7 +252,7 @@ func (s *Session) handleSlashCommand(line string) bool {
 
 	case "/clear":
 		fmt.Print("\033[H\033[2J")
-		s.printWelcome()
+		ui.PrintSplash(s.workspaceName)
 
 	case "/help":
 		s.printHelp()
@@ -317,19 +317,6 @@ func (s *Session) onJobComplete(job *TrackedJob) {
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
-
-func (s *Session) printWelcome() {
-	fmt.Println()
-	line := ui.AccentStyle.Render("  ● Studio Mode")
-	if s.workspaceName != "" {
-		line += ui.MutedStyle.Render(" · Workspace: ") + ui.BoldStyle.Render(s.workspaceName)
-	} else {
-		line += ui.WarnStyle.Render(" · No workspace — type a prompt and we'll ask you to pick one")
-	}
-	fmt.Println(line)
-	fmt.Println(ui.MutedStyle.Render("  Type a prompt to generate · /help for commands · /quit to exit"))
-	fmt.Println()
-}
 
 func (s *Session) printPrompt() {
 	fmt.Print(ui.AccentStyle.Render(promptGlyph))
