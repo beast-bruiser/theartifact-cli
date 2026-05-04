@@ -1,0 +1,6 @@
+docs/*
+.agent
+.claude
+.codex
+.gemini
+theartifact-cli
