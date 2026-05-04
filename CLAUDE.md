@@ -18,15 +18,16 @@ ARTIFACT_API_URL=http://localhost:8081 ./theartifact
 # One-shot commands
 ./theartifact login --key tak_live_...
 ./theartifact generate -w <id> -m "prompt"
-./theartifact status <job_id> --wait
+./theartifact status <job_id> --wait              # auto-downloads assets to .artifact/assets/
+./theartifact status <job_id> --wait --no-download # print URLs only
 ./theartifact workspace list
 
 # Lint & vet
 go vet ./...
 
 # Tests
-go test ./internal/api ./internal/studio -v
-go test ./internal/api ./internal/studio -cover
+go test ./internal/api ./internal/studio ./internal/config -v
+go test ./internal/api ./internal/studio ./internal/config -cover
 
 # Cross-compile
 GOOS=darwin GOARCH=arm64 go build -o theartifact-darwin-arm64 .
@@ -35,23 +36,30 @@ GOOS=linux  GOARCH=amd64 go build -o theartifact-linux-amd64 .
 
 ## Architecture
 
-Go CLI (Cobra-based) for TheArtifact API. Entry point: `main.go` → `cmd.Execute()`. Running with no subcommand enters **Studio mode** (interactive REPL). Auth is prompted inline on first run.
+Go CLI (Cobra-based) for TheArtifact API. Entry point: `main.go` → `cmd.Execute()`. Running with no subcommand enters **Studio mode** (interactive REPL). First run runs a 3-step onboarding orchestrator inline.
 
 ### Package layout
 
 | Package | Role |
 |---|---|
-| `cmd/` | One file per Cobra command (`root` = studio entry + inline auth gate, `auth` = `login`/`auth` alias, `generate`, `ingest`, `status`, `workspace`, `studio` = explicit alias) |
-| `internal/api/` | HTTP client and API methods — one file per resource (`client`, `workspaces`, `generations`, `ingest`, `jobs`) |
-| `internal/config/` | Read/write `~/.artifact/config.json` (`api_key`, `default_workspace_id`, `base_url`) |
+| `cmd/` | One file per Cobra command (`root` = onboarding orchestrator + Studio entry, `auth` = `login` alias for CI, `generate`, `ingest`, `status`, `workspace`, `studio` = explicit alias) |
+| `internal/api/` | HTTP client and API methods — one file per resource (`client`, `workspaces`, `generations`, `ingest`, `jobs`, `assets`) |
+| `internal/config/` | Global config (`~/.artifact/config.json`), project config (`<cwd>/.artifact/config.json`), `ScaffoldProject` |
 | `internal/studio/` | Interactive REPL session (`session.go`) and background job poller (`tracker.go`) |
-| `internal/ui/` | Terminal output: lipgloss styles (`theme.go`), formatted printers (`printer.go`), spinner wrapper (`spinner.go`) |
+| `internal/ui/` | Terminal output: lipgloss styles (`theme.go`), formatted printers (`printer.go`), spinner wrapper (`spinner.go`), onboarding prompts (`onboarding.go`) |
 
 ### Key data flows
 
-**Auth (inline gate):** Running `theartifact` with no API key triggers `runLoginOnboarding()` in `cmd/root.go` — prompts for key, validates prefix format (`tak_live_`/`tak_test_`), saves to config, then continues into Studio. `theartifact login --key ...` also works for non-interactive auth.
+**Onboarding orchestrator** (`cmd/root.go` `RunE`): Three sequential gates run on every `theartifact` invocation:
+1. **API key gate** — if `~/.artifact/config.json` has no `api_key`, call `ui.PromptAPIKey()`: prints `https://theartifact.art/api-keys`, `[Enter]` opens the browser (TTY only), accepts pasted key, saves to global config.
+2. **Scaffold gate** — if `.artifact/` does not exist in cwd, call `config.ScaffoldProject(cwd)`: creates `.artifact/{brain,input,assets}/` and `brain/.README`.
+3. **Workspace gate** — if `.artifact/config.json` has no `workspace_id`, fetch the API workspace list: 0 → print web link and exit; 1 → auto-select; N → numbered picker. Selection is saved to project config.
 
-**Studio (default mode):** Running `theartifact` (no subcommand) opens `studio.Session.Run()` — a blocking REPL that reads stdin, calls `client.Generate()`, and enqueues jobs into `JobTracker`. The tracker polls `/v1/jobs/{id}` every 3 seconds in a background goroutine and fires `onJobComplete` when a job reaches a terminal state. If the workspace is missing or invalid, Studio prompts inline (workspace picker or auto-recovery on `forbidden`).
+After all gates pass, `studio.NewSession(...).Run()` is called.
+
+**Auth (non-interactive):** `theartifact login --key ...` writes the key directly to global config. Used for CI/scripts.
+
+**Studio (default mode):** Running `theartifact` (no subcommand) opens `studio.Session.Run()` — a blocking REPL that reads stdin, calls `client.Generate()`, and enqueues jobs into `JobTracker`. The tracker polls `/v1/jobs/{id}` every 3 seconds in a background goroutine and fires `onJobComplete` when a job reaches a terminal state. On `succeeded`, assets are downloaded to `.artifact/assets/` in a goroutine so the REPL stays responsive. If the workspace becomes invalid mid-session, Studio clears it and re-prompts inline.
 
 **Ingest (3-step orchestration):**
 1. `POST /v1/uploads` with file count → signed PUT URLs + upload tokens
@@ -71,17 +79,39 @@ All API calls follow the same resty pattern — `SetResult` for success body, `S
 - All colors come from `internal/ui/theme.go` — never hardcode lipgloss colors in command files.
 - `ui.StatusStyle(status)` maps job status strings → lipgloss styles.
 
-## Config file
+## Config files
 
-`~/.artifact/config.json` — stored with 0600 permissions.
+### Global — `~/.artifact/config.json` (0600 permissions)
+
+Shared across all projects on this machine.
 
 | Field | Required | Description |
 |---|---|---|
 | `api_key` | yes | API key (`tak_live_...`) — set on first run or via `login` |
-| `default_workspace_id` | no | Auto-persisted when a workspace is selected in Studio or via `-w` |
-| `base_url` | no | Override API base URL for local dev (e.g. `http://localhost:8081`) |
+| `base_url` | no | Override API base URL (e.g. `http://localhost:8081`) |
 
-Base URL can also be set via `ARTIFACT_API_URL` env var (takes precedence over config).
+### Project — `<cwd>/.artifact/config.json`
+
+Created by `config.ScaffoldProject()` on first run in a directory. Binds the directory to a workspace.
+
+| Field | Description |
+|---|---|
+| `workspace_id` | The workspace linked to this directory — authoritative |
+| `workspace_name` | Display name cache — refreshed if empty |
+| `initialized_at` | ISO timestamp of first scaffold |
+
+`ARTIFACT_API_URL` env var overrides `base_url` in global config (takes precedence).
+
+### Project folder layout
+
+```
+<cwd>/
+  .artifact/
+    config.json    ← project config (workspace binding)
+    brain/         ← server-managed files (do not hand-edit; overwritten by ingest/critique jobs)
+    input/         ← reference files to upload for ingest
+    assets/        ← generated assets, auto-downloaded on job completion
+```
 
 ## API reference
 
