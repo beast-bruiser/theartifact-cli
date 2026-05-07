@@ -91,12 +91,12 @@ var rootCmd = &cobra.Command{
 		}
 
 		if projCfg.WorkspaceID == "" {
-			projCfg, err = runWorkspaceGate(scanner, client, projCfg)
+			projCfg, err = runWorkspaceGate(scanner, client, projCfg, cwd, workspaceGateOptions{})
 			if err != nil {
 				return err
 			}
 			if projCfg == nil {
-				return nil // no workspaces — user directed to web
+				return nil
 			}
 		}
 		_ = config.SaveProject(projCfg)
@@ -126,49 +126,6 @@ var rootCmd = &cobra.Command{
 		session.Run()
 		return nil
 	},
-}
-
-// runWorkspaceGate fetches workspaces and lets the user pick one.
-// Returns nil projCfg when there are no workspaces (user directed to web).
-func runWorkspaceGate(scanner *bufio.Scanner, client *api.Client, projCfg *config.ProjectConfig) (*config.ProjectConfig, error) {
-	fmt.Println()
-	fmt.Println(ui.WarnStyle.Render("  No workspace linked to this project. Let's set one up."))
-
-	sp := ui.NewSpinner("Fetching workspaces…")
-	sp.Start()
-	workspaces, err := client.ListWorkspaces()
-	if err != nil {
-		sp.Fail("Could not fetch workspaces")
-		return nil, err
-	}
-	sp.Stop(fmt.Sprintf("Found %d workspace(s)", len(workspaces)))
-
-	if len(workspaces) == 0 {
-		ui.PrintNoWorkspacesHint()
-		return nil, nil
-	}
-
-	items := make([]ui.WorkspaceItem, len(workspaces))
-	for i, w := range workspaces {
-		items[i] = ui.WorkspaceItem{ID: w.ID, Name: w.Name}
-	}
-
-	if len(workspaces) == 1 {
-		projCfg.WorkspaceID = workspaces[0].ID
-		projCfg.WorkspaceName = workspaces[0].Name
-		ui.PrintSuccess(fmt.Sprintf("Auto-selected workspace: %s", workspaces[0].Name))
-		return projCfg, nil
-	}
-
-	id, name := ui.PromptWorkspace(scanner, items)
-	if id == "" {
-		ui.PrintWarn("Invalid selection.")
-		return nil, nil
-	}
-	projCfg.WorkspaceID = id
-	projCfg.WorkspaceName = name
-	ui.PrintSuccess(fmt.Sprintf("Workspace set to: %s", name))
-	return projCfg, nil
 }
 
 // Execute runs the root command.

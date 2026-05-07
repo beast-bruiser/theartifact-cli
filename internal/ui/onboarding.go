@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"unicode/utf8"
@@ -82,12 +83,59 @@ func PromptWorkspace(scanner *bufio.Scanner, workspaces []WorkspaceItem) (id, na
 	return "", ""
 }
 
-// PrintNoWorkspacesHint prints a friendly message and the URL to create a workspace.
-func PrintNoWorkspacesHint() {
+// DeriveWorkspaceName creates a workspace name from the folder path.
+// Non-alphanumeric characters (except space) become dashes; falls back to "my-workspace".
+func DeriveWorkspaceName(cwd string) string {
+	base := filepath.Base(cwd)
+	var b strings.Builder
+	for _, r := range base {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	name := strings.Trim(b.String(), "- ")
+	if name == "" {
+		return "my-workspace"
+	}
+	return name
+}
+
+// PromptWorkspaceName shows the suggested name and lets the user confirm or edit it.
+func PromptWorkspaceName(scanner *bufio.Scanner, suggested string) (string, error) {
 	fmt.Println()
-	PrintWarn("No workspaces found.")
-	fmt.Println(MutedStyle.Render("  Create one at: ") + HintStyle.Render("https://theartifact.art/workspaces"))
+	fmt.Printf("  %s %s  %s\n",
+		AccentStyle.Render("Workspace name:"),
+		BoldStyle.Render(suggested),
+		MutedStyle.Render("[Enter to keep, or type a new name]"),
+	)
+	fmt.Print(AccentStyle.Render("  name ▸ "))
+
+	if !scanner.Scan() {
+		return "", fmt.Errorf("init cancelled")
+	}
+	if name := strings.TrimSpace(scanner.Text()); name != "" {
+		return name, nil
+	}
+	return suggested, nil
+}
+
+// PromptCreateOrLink asks whether to create a new workspace or link an existing one.
+// Returns true if the user chooses to create a new workspace.
+func PromptCreateOrLink(scanner *bufio.Scanner, folderName string) bool {
 	fmt.Println()
+	fmt.Println(MutedStyle.Render("  You have existing workspaces."))
+	fmt.Printf("  %s  %s\n", AccentStyle.Render("[1]"), BoldStyle.Render(fmt.Sprintf("Create new workspace \"%s\"", folderName)))
+	fmt.Printf("  %s  %s\n", AccentStyle.Render("[2]"), BoldStyle.Render("Link an existing workspace"))
+	fmt.Println()
+	fmt.Print(AccentStyle.Render("  choice ▸ "))
+
+	if !scanner.Scan() {
+		return true
+	}
+	return strings.TrimSpace(scanner.Text()) != "2"
 }
 
 // WorkspaceItem is a minimal workspace representation for the picker.

@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
-	"net/http"
-	"os"
 
 	"github.com/spf13/cobra"
 	"theartifact-cli/internal/api"
@@ -45,43 +42,14 @@ var ingestCmd = &cobra.Command{
 		sp.Stop(fmt.Sprintf("Got %d upload URL(s)", len(uploadTokens)))
 
 		// ── Step 2: Upload Binaries ────────────────────────────────────────────
-		var sourceTokens []string
-		httpClient := &http.Client{}
-
-		for i, filePath := range ingestFiles {
-			sp2 := ui.NewSpinner(fmt.Sprintf("Uploading %s...", filePath))
-			sp2.Start()
-
-			fileData, err := os.ReadFile(filePath)
-			if err != nil {
-				sp2.Fail(fmt.Sprintf("Cannot read file: %s", filePath))
-				return fmt.Errorf("failed to read file %s: %w", filePath, err)
-			}
-
-			tokenData := uploadTokens[i]
-
-			req, err := http.NewRequest("PUT", tokenData.URL, bytes.NewReader(fileData))
-			if err != nil {
-				sp2.Fail("Failed to build upload request")
-				return fmt.Errorf("failed to create request for %s: %w", filePath, err)
-			}
-			req.Header.Set("Content-Type", ingestMimeType)
-
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				sp2.Fail(fmt.Sprintf("Upload failed: %s", filePath))
-				return fmt.Errorf("failed to upload %s: %w", filePath, err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				sp2.Fail(fmt.Sprintf("Upload rejected (HTTP %d): %s", resp.StatusCode, filePath))
-				return fmt.Errorf("upload failed for %s with status %d", filePath, resp.StatusCode)
-			}
-
-			sp2.Stop(filePath)
-			sourceTokens = append(sourceTokens, tokenData.UploadToken)
+		sp2 := ui.NewSpinner(fmt.Sprintf("Uploading %d file(s)…", len(ingestFiles)))
+		sp2.Start()
+		sourceTokens, err := api.UploadFiles(uploadTokens, ingestFiles, ingestMimeType)
+		if err != nil {
+			sp2.Fail("Upload failed")
+			return err
 		}
+		sp2.Stop(fmt.Sprintf("Uploaded %d file(s)", len(ingestFiles)))
 
 		// ── Step 3: Trigger Ingest ─────────────────────────────────────────────
 		sp3 := ui.NewSpinner("Triggering ingestion...")

@@ -34,6 +34,7 @@ type Session struct {
 	workspaceID   string
 	workspaceName string
 	tracker       *JobTracker
+	watcher       *InputWatcher
 	history       []ChatEntry
 }
 
@@ -46,12 +47,14 @@ func NewSession(client *api.Client, workspaceID, workspaceName string) *Session 
 		workspaceName: workspaceName,
 	}
 	s.tracker = NewJobTracker(client, s.onJobComplete)
+	s.watcher = newInputWatcher(client, func() string { return s.workspaceID }, s.tracker, s.printSystem, s.printPrompt)
 	return s
 }
 
 // Run starts the interactive REPL loop, blocks until the user exits.
 func (s *Session) Run() {
 	ui.PrintSplash(s.workspaceName)
+	s.startWatcher()
 	s.setupSignalHandler()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -240,6 +243,12 @@ func (s *Session) handleSlashCommand(line string) bool {
 		}
 		s.setWorkspace(id, name)
 
+	case "/ingest":
+		go func() {
+			cwd, _ := os.Getwd()
+			s.watcher.ForceIngest(filepath.Join(cwd, ".artifact", "input"))
+		}()
+
 	case "/jobs":
 		s.tracker.PrintJobsTable()
 
@@ -333,6 +342,7 @@ func (s *Session) printHelp() {
 
 	cmds := [][2]string{
 		{"/workspace <id>", "Switch to a different workspace"},
+		{"/ingest", "Ingest all images in .artifact/input/ now"},
 		{"/jobs", "List all queued and completed jobs"},
 		{"/status <id>", "Show status of a specific job"},
 		{"/clear", "Clear the terminal screen"},
@@ -348,7 +358,24 @@ func (s *Session) printHelp() {
 	fmt.Println()
 }
 
+func (s *Session) startWatcher() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	inputDir := filepath.Join(cwd, ".artifact", "input")
+	if _, err := os.Stat(inputDir); err != nil {
+		return // .artifact/input doesn't exist yet
+	}
+	if err := s.watcher.Start(inputDir); err != nil {
+		s.printSystem(ui.WarnStyle.Render("Could not watch input/: " + err.Error()))
+		return
+	}
+	s.printSystem(ui.MutedStyle.Render("Watching .artifact/input/ — drop images to auto-ingest"))
+}
+
 func (s *Session) shutdown(msg string) {
+	s.watcher.Stop()
 	s.tracker.Stop()
 	fmt.Println()
 	fmt.Println(ui.MutedStyle.Render("  " + msg))

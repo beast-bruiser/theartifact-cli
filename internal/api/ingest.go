@@ -1,6 +1,11 @@
 package api
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"net/http"
+	"os"
+)
 
 type UploadRequest struct {
 	Count    int    `json:"count"`
@@ -25,6 +30,36 @@ type IngestRequest struct {
 
 type IngestResponse struct {
 	JobID string `json:"job_id"`
+}
+
+// UploadFiles PUTs each file to its presigned URL and returns the upload tokens.
+func UploadFiles(uploads []UploadToken, filePaths []string, mimeType string) ([]string, error) {
+	if len(uploads) != len(filePaths) {
+		return nil, fmt.Errorf("uploads/files length mismatch: %d vs %d", len(uploads), len(filePaths))
+	}
+	httpClient := &http.Client{}
+	tokens := make([]string, 0, len(filePaths))
+	for i, path := range filePaths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read file %s: %w", path, err)
+		}
+		req, err := http.NewRequest(http.MethodPut, uploads[i].URL, bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("cannot create request for %s: %w", path, err)
+		}
+		req.Header.Set("Content-Type", mimeType)
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("upload failed for %s: %w", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("upload rejected for %s (HTTP %d)", path, resp.StatusCode)
+		}
+		tokens = append(tokens, uploads[i].UploadToken)
+	}
+	return tokens, nil
 }
 
 func (c *Client) RequestUploadURLs(count int, mimeType string) ([]UploadToken, error) {
