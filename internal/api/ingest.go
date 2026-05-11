@@ -62,7 +62,29 @@ func UploadFiles(uploads []UploadToken, filePaths []string, mimeType string) ([]
 	return tokens, nil
 }
 
+const maxUploadBatch = 10
+
+// RequestUploadURLs requests presigned upload slots from the API, automatically
+// chunking into batches of 10 (the server-side maximum) when count > 10.
 func (c *Client) RequestUploadURLs(count int, mimeType string) ([]UploadToken, error) {
+	var all []UploadToken
+	remaining := count
+	for remaining > 0 {
+		batch := remaining
+		if batch > maxUploadBatch {
+			batch = maxUploadBatch
+		}
+		tokens, err := c.requestUploadURLsBatch(batch, mimeType)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, tokens...)
+		remaining -= batch
+	}
+	return all, nil
+}
+
+func (c *Client) requestUploadURLsBatch(count int, mimeType string) ([]UploadToken, error) {
 	var upResp UploadResponse
 	req := UploadRequest{Count: count, MimeType: mimeType}
 
