@@ -42,7 +42,7 @@ Go CLI (Cobra-based) for TheArtifact API. Entry point: `main.go` → `cmd.Execut
 
 | Package | Role |
 |---|---|
-| `cmd/` | One file per Cobra command (`root` = onboarding orchestrator + Studio entry, `auth` = `login` alias for CI, `generate`, `ingest`, `status`, `workspace`, `studio` = explicit alias) |
+| `cmd/` | One file per Cobra command (`root` = onboarding orchestrator + Studio entry, `init` = folder-as-workspace bootstrap, `workspace_gate` = shared create/link logic, `auth` = `login` alias for CI, `generate`, `ingest`, `status`, `workspace`, `studio` = explicit alias) |
 | `internal/api/` | HTTP client and API methods — one file per resource (`client`, `workspaces`, `generations`, `ingest`, `jobs`, `assets`) |
 | `internal/config/` | Global config (`~/.artifact/config.json`), project config (`<cwd>/.artifact/config.json`), `ScaffoldProject` |
 | `internal/studio/` | Interactive REPL session (`session.go`) and background job poller (`tracker.go`) |
@@ -53,9 +53,11 @@ Go CLI (Cobra-based) for TheArtifact API. Entry point: `main.go` → `cmd.Execut
 **Onboarding orchestrator** (`cmd/root.go` `RunE`): Three sequential gates run on every `theartifact` invocation:
 1. **API key gate** — if `~/.artifact/config.json` has no `api_key`, call `ui.PromptAPIKey()`: prints `https://theartifact.art/api-keys`, `[Enter]` opens the browser (TTY only), accepts pasted key, saves to global config.
 2. **Scaffold gate** — if `.artifact/` does not exist in cwd, call `config.ScaffoldProject(cwd)`: creates `.artifact/{brain,input,assets}/` and `brain/.README`.
-3. **Workspace gate** — if `.artifact/config.json` has no `workspace_id`, fetch the API workspace list: 0 → print web link and exit; 1 → auto-select; N → numbered picker. Selection is saved to project config.
+3. **Workspace gate** (`cmd/workspace_gate.go`) — if `.artifact/config.json` has no `workspace_id`, fetch the API workspace list. Zero workspaces → auto-create one from the folder name (`ui.DeriveWorkspaceName(cwd)`, confirm/edit prompt) via `client.CreateWorkspace()`. One existing → auto-select. N existing → ask "create new from this folder, or link existing?" — link path shows numbered picker. Selection saved to project config.
 
 After all gates pass, `studio.NewSession(...).Run()` is called.
+
+**`theartifact init`** (`cmd/init.go`): explicit, scriptable form of the same flow. Runs API-key gate, scaffold, workspace gate, then auto-ingest: if `.artifact/input/` contains image files, prompt to upload them as seed (`runAutoIngest` reuses the standard uploads + ingest plumbing). Flags: `--name <str>` (skips name prompt), `--link <id>` (binds without creating), `--no-prompt` (CI mode; requires `--name` or `--link`). Idempotent — re-running in an already-linked folder is a no-op.
 
 **Auth (non-interactive):** `theartifact login --key ...` writes the key directly to global config. Used for CI/scripts.
 

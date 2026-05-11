@@ -1,285 +1,228 @@
 # TheArtifact CLI
 
-A fast, terminal-native client for [theartifact.art](https://theartifact.art) — generate AI assets, ingest reference files, and manage your workspaces from the command line.
+> Generate AI assets from your terminal. Powered by [theartifact.art](https://theartifact.art).
+
+```
+you ▸ a knight in full plate armour at dusk, cinematic lighting
+  ◆  ⦿  Queued a1b2c3d4 — generating in background…
+  ✓  Job a1b2c3d4 complete — 1 asset(s) generated
+  ↓  Saved 1 asset(s) to .artifact/assets/
+```
 
 ---
 
-## Quick Start
+## Install
+
+**macOS / Linux (Homebrew-style one-liner)**
 
 ```bash
-# Just run it — the CLI handles everything else
-theartifact
+git clone https://github.com/theartifact/theartifact-cli && \
+  cd theartifact-cli && \
+  go build -o theartifact . && \
+  sudo mv theartifact /usr/local/bin/
 ```
 
-On first run the CLI walks you through three steps automatically:
-
-**1. API key** — prints the key dashboard URL, offers to open your browser, then accepts a pasted key:
-```
-  ● Welcome to TheArtifact
-  AI-powered asset generation · theartifact.art
-
-  You need an API key to continue.
-  https://theartifact.art/api-keys
-
-  [Enter] open in browser · or paste your key now: tak_live_...
-  ✓  Authenticated
-```
-
-**2. Project scaffold** — creates a `.artifact/` folder in the current directory:
-```
-  ✓  Project initialized
-  .artifact/brain/    server-managed knowledge files
-  .artifact/input/    files to ingest
-  .artifact/assets/   downloaded generation outputs
-```
-
-**3. Workspace selection** — picks your workspace and links it to this directory:
-```
-  [1]  Dark Fantasy    ws_abc123
-  [2]  Sci-Fi Brand    ws_def456
-
-  workspace ▸ 1
-  ✓  Workspace set to: Dark Fantasy
-```
-
-After first run, `theartifact` drops straight into Studio Mode every time.
-
----
-
-## Installation
-
-### Build from source (requires Go 1.21+)
+**From source (any platform with Go 1.21+)**
 
 ```bash
 git clone https://github.com/theartifact/theartifact-cli
 cd theartifact-cli
 go build -o theartifact .
+```
 
-# Move to PATH
-mv theartifact /usr/local/bin/
+Then move the binary somewhere on your `PATH`.
+
+**Verify**
+
+```bash
+theartifact --help
 ```
 
 ---
 
-## Project structure
+## First run
 
-Each directory you run `theartifact` in becomes a project. On first run the CLI scaffolds:
+```bash
+theartifact
+```
+
+That's it. The CLI walks you through three steps the first time:
+
+1. **Paste your API key** — get one at [theartifact.art/api-keys](https://theartifact.art/api-keys). Press `Enter` to open the page in your browser.
+2. **Project folder is created** — a `.artifact/` directory in your current folder.
+3. **Pick or create a workspace** — name it whatever you want.
+
+Then you're in Studio. Type a prompt, get an image.
+
+---
+
+## Studio mode
+
+Just run `theartifact` and start typing prompts:
+
+```
+you ▸ neon cityscape, raining
+you ▸ same city but at sunrise
+```
+
+Each prompt runs in the background — keep typing, results arrive when ready. Images auto-download to `.artifact/assets/`.
+
+### Slash commands
+
+| Command | What it does |
+|---|---|
+| `/workspace <id>` | Switch workspaces |
+| `/ingest` | Upload everything in `.artifact/input/` now |
+| `/jobs` | List recent jobs |
+| `/status <id>` | Check a specific job |
+| `/clear` | Clear screen |
+| `/help` | Show all commands |
+| `/quit` | Exit |
+
+### Drop-to-ingest
+
+While Studio is running, drop any image into `.artifact/input/` — it uploads automatically and teaches your workspace that style.
+
+---
+
+## Project folder
+
+Run `theartifact` in any folder and it creates this:
 
 ```
 your-project/
-  .artifact/
-    config.json    ← workspace binding (workspace_id, workspace_name)
-    brain/         ← server-managed knowledge files (do not hand-edit)
-    input/         ← reference files to upload for ingest
-    assets/        ← generated assets, auto-downloaded on completion
+└── .artifact/
+    ├── config.json    workspace binding
+    ├── brain/         knowledge files (managed by the server)
+    ├── input/         drop reference images here
+    └── assets/        your generated outputs
 ```
 
-The `.artifact/` folder is project-local — you can have different workspaces in different directories.
+Each folder can be linked to a different workspace. Switch projects = switch folders.
 
-> **Note:** Add `.artifact/config.json` to `.gitignore` if you don't want workspace bindings committed. The `brain/`, `input/`, and `assets/` directories are safe to gitignore too.
+---
+
+## One-shot commands
+
+Skip Studio. Useful for scripts and CI.
+
+**Generate**
+```bash
+theartifact generate -w <workspace_id> -m "a dragon made of circuits"
+theartifact generate -w <workspace_id> -m "neon cityscape" --count 4 --seed 42
+```
+
+**Wait for a job and download the result**
+```bash
+theartifact status <job_id> --wait
+```
+
+**Upload reference images**
+```bash
+theartifact ingest -w <workspace_id> -f ./ref1.png -f ./ref2.jpg
+```
+
+**List your workspaces**
+```bash
+theartifact workspace list
+```
+
+**Set up a project non-interactively (CI-friendly)**
+```bash
+theartifact init --name "Dark Fantasy" --no-prompt
+# or link to an existing one
+theartifact init --link ws_abc123 --no-prompt
+```
 
 ---
 
 ## Authentication
 
-Authentication happens automatically on first run. To set or update your key manually:
+Your API key is saved once at `~/.artifact/config.json` and reused everywhere.
+
+To set or replace it manually:
 
 ```bash
 theartifact login --key tak_live_<your-key>
 ```
 
-Your key is stored at `~/.artifact/config.json` with `0600` permissions and reused across all projects.
-
-> Get your API key at **[theartifact.art/api-keys](https://theartifact.art/api-keys)**.
+Get a key at **[theartifact.art/api-keys](https://theartifact.art/api-keys)**.
 
 ---
 
-## Studio Mode (Interactive)
+## All flags at a glance
 
-Studio is the primary way to use the CLI — just like `claude` launches Claude Code.
+| Flag | Where | What it does |
+|---|---|---|
+| `-w, --workspace` | `studio`, `generate`, `ingest` | Pick a workspace |
+| `-m, --message` | `generate` | The prompt |
+| `--count` | `generate` | How many images (1–4) |
+| `--seed` | `generate` | Reproducible output |
+| `-f, --file` | `ingest` | File to upload (repeat for many) |
+| `--mime-type` | `ingest` | Defaults to `image/png` |
+| `--name` | `init` | Create a workspace with this name |
+| `--link` | `init` | Bind to an existing workspace ID |
+| `--no-prompt` | `init` | Skip all prompts (CI mode) |
+| `--wait` | `status` | Poll until done |
+| `--no-download` | `status` | Print URLs instead of saving |
+| `--no-color` | all | Disable colors |
 
-```bash
-# Open studio (uses the workspace linked to this directory)
-theartifact
+**Environment variables**
 
-# Open studio with a specific workspace (overrides project config)
-theartifact -w <workspace_id>
-
-# Explicit subcommand (same thing)
-theartifact studio
-```
-
-### Studio slash commands
-
-| Command | Description |
-|---------|-------------|
-| `/workspace` | Show current workspace |
-| `/workspace <id>` | Switch to a different workspace mid-session |
-| `/jobs` | List all queued and completed jobs in this session |
-| `/status <id>` | Show details for a specific job |
-| `/clear` | Clear the terminal screen |
-| `/help` | Show all available commands |
-| `/quit` | Exit studio |
-
-### Example session
-
-```
-  ● Studio Mode · Workspace: Dark Fantasy
-  Type a prompt to generate · /help for commands · /quit to exit
-
-you ▸ a knight in full plate armour at dusk, cinematic lighting
-  ◆  ⦿  Queued a1b2c3d4 — generating in background…
-
-you ▸ the same knight from above, but victorious on a battlefield
-  ◆  ⦿  Queued b2c3d4e5 — generating in background…
-
-  ✓  Job a1b2c3d4 complete — 1 asset(s) generated
-     Prompt: a knight in full plate armour at dusk, cinematic lighting
-  ↓  Saved 1 asset(s) to .artifact/assets/
-
-you ▸
-```
-
-> **Tip:** Queue multiple prompts without waiting — each runs as an independent background job and announces when it's done. Assets are downloaded automatically to `.artifact/assets/`.
+| Var | Purpose |
+|---|---|
+| `ARTIFACT_API_URL` | Point at a different backend (e.g. `http://localhost:8081`) |
+| `NO_COLOR` | Disable colors |
 
 ---
 
-## One-Shot Commands
+## Common errors
 
-These work without entering Studio Mode — useful for scripts and CI.
-
-### Generate
-
-```bash
-# Start a generation job and print the job ID
-theartifact generate -w <workspace_id> -m "a dragon made of circuits"
-
-# Generate multiple images
-theartifact generate -w <workspace_id> -m "neon cityscape" --count 4
-
-# Reproducible generation with a fixed seed
-theartifact generate -w <workspace_id> -m "forest at midnight" --seed 42
-```
-
-### Check job status
-
-```bash
-# One-time status check
-theartifact status <job_id>
-
-# Poll until the job finishes and auto-download assets to .artifact/assets/
-theartifact status <job_id> --wait
-
-# Poll but print URLs instead of downloading
-theartifact status <job_id> --wait --no-download
-```
-
-### Ingest reference files
-
-Upload images to a workspace's brain so future generations are styled by them.
-
-```bash
-# Single file
-theartifact ingest -w <workspace_id> -f ./reference.png
-
-# Multiple files
-theartifact ingest -w <workspace_id> -f ./ref1.png -f ./ref2.jpg
-
-# Track the resulting job
-theartifact status <job_id> --wait
-```
-
-The CLI handles the full 3-step upload flow automatically:
-1. Requests presigned upload URLs from the API
-2. Uploads each file as a binary `PUT` to the signed URL
-3. Triggers the ingestion job with the returned upload tokens
-
-### List workspaces
-
-```bash
-theartifact workspace list
-```
-
----
-
-## Configuration
-
-### Global config — `~/.artifact/config.json`
-
-Stores your API key. Shared across all projects on this machine.
-
-| Field | Description |
-|-------|-------------|
-| `api_key` | Your API key — set on first run or via `theartifact login` |
-| `base_url` | Override API base URL (e.g. `http://localhost:8081` for local dev) |
-
-### Project config — `<cwd>/.artifact/config.json`
-
-Stores the workspace binding for the current directory. Created automatically on first run.
-
-| Field | Description |
-|-------|-------------|
-| `workspace_id` | The workspace linked to this directory |
-| `workspace_name` | Display name cache — refreshed automatically |
-| `initialized_at` | Timestamp of first init |
-
-### Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `ARTIFACT_API_URL` | Override API base URL (takes precedence over config `base_url`) |
-| `NO_COLOR` | Set to any value to disable color output |
-
-### Flags
-
-| Flag | Commands | Description |
-|------|----------|-------------|
-| `--no-color` | all | Disable color output |
-| `-w, --workspace` | `studio`, `generate`, `ingest` | Workspace ID override |
-| `--wait` | `status` | Poll until job completes |
-| `--no-download` | `status` | Print asset URLs instead of downloading |
-
----
-
-## Error Reference
-
-| Error | Meaning |
-|-------|---------|
-| `Not authenticated` | Run `theartifact login --key <key>` or re-run `theartifact` |
-| `forbidden` | Your API key doesn't have access to this workspace |
-| `quota_exceeded` | Monthly generation quota exhausted |
-| `rate_limited` | Too many requests — slow down or wait |
-| `not_found` | Workspace or job ID doesn't exist |
+| Message | Fix |
+|---|---|
+| `Not authenticated` | Run `theartifact login --key <key>` |
+| `forbidden` | Your key can't access that workspace |
+| `not_found` | Wrong workspace or job ID |
+| `quota_exceeded` | You hit your monthly limit |
+| `rate_limited` | Slow down and retry |
 
 ---
 
 ## Tips
 
-- **Batch generation**: Queue multiple prompts in Studio before any complete — they run in parallel.
-- **Auto-download**: Assets land in `.artifact/assets/` automatically. Use `--no-download` to get URLs instead.
-- **Reproducible results**: Use `--seed <number>` for the same output from the same prompt.
-- **CI/scripts**: Use one-shot commands (`generate`, `status --wait --no-download`) for automation.
-- **Pipe-safe output**: Add `--no-color` or set `NO_COLOR=1` to strip ANSI codes.
-- **Multiple projects**: Each directory gets its own `.artifact/config.json` workspace binding.
+- **Queue freely** — multiple prompts run in parallel, you don't have to wait.
+- **Reproduce results** — use `--seed <n>` with the same prompt.
+- **Auto-style** — drop images into `.artifact/input/` and they shape future generations.
+- **Pipe-safe** — set `NO_COLOR=1` to strip ANSI codes.
+- **Per-folder workspaces** — each directory remembers its own workspace.
 
 ---
 
-## Project Source Structure
+## Development
+
+```bash
+# Build & run
+go build -o theartifact . && ./theartifact
+
+# Local backend
+ARTIFACT_API_URL=http://localhost:8081 ./theartifact
+
+# Test & lint
+go test ./...
+go vet ./...
+
+# Cross-compile
+GOOS=darwin GOARCH=arm64 go build -o theartifact-darwin-arm64 .
+GOOS=linux  GOARCH=amd64 go build -o theartifact-linux-amd64 .
+```
+
+Source layout:
 
 ```
-theartifact-cli/
-├── main.go
-├── cmd/
-│   ├── root.go        # Entry point → onboarding orchestrator → Studio
-│   ├── auth.go        # login --key (non-interactive/CI)
-│   ├── generate.go    # generate command
-│   ├── ingest.go      # ingest command
-│   ├── status.go      # status command (--wait, --no-download)
-│   ├── studio.go      # studio subcommand alias
-│   └── workspace.go   # workspace list
-└── internal/
-    ├── api/           # HTTP client, resource methods, asset downloader
-    ├── config/        # Global + project config, ScaffoldProject
-    ├── studio/        # REPL session + background job tracker
-    └── ui/            # Theme, printer, spinner, onboarding prompts
+cmd/         CLI commands (one file per command)
+internal/
+  api/       HTTP client & API methods
+  config/    global + project config
+  studio/    REPL, job tracker, input watcher
+  ui/        styling, prompts, spinners
 ```

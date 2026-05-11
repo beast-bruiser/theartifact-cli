@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -160,6 +161,94 @@ func TestListWorkspaces_APIError(t *testing.T) {
 
 	if workspaces != nil {
 		t.Errorf("expected nil workspaces on error, got %v", workspaces)
+	}
+}
+
+// TestCreateWorkspace_Success verifies a 201 response is parsed correctly.
+func TestCreateWorkspace_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/workspaces" {
+			t.Errorf("wrong path: %s", r.URL.Path)
+		}
+
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["name"] != "cyberpunk-art" {
+			t.Errorf("expected name=cyberpunk-art, got %q", body["name"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":            "ws_abc123",
+			"name":          "cyberpunk-art",
+			"style_summary": "",
+		})
+	}))
+	defer server.Close()
+
+	client := newTestAPIClient(server.URL)
+	ws, err := client.CreateWorkspace("cyberpunk-art")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ws.ID != "ws_abc123" {
+		t.Errorf("workspace ID mismatch: got %q", ws.ID)
+	}
+	if ws.Name != "cyberpunk-art" {
+		t.Errorf("workspace name mismatch: got %q", ws.Name)
+	}
+}
+
+// TestCreateWorkspace_Unauthorized verifies 401 maps to a helpful error.
+func TestCreateWorkspace_Unauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    "unauthorized",
+			"message": "API key auth not supported on this endpoint",
+		})
+	}))
+	defer server.Close()
+
+	client := newTestAPIClient(server.URL)
+	ws, err := client.CreateWorkspace("anything")
+
+	if err == nil {
+		t.Fatal("expected error on 401, got nil")
+	}
+	if ws != nil {
+		t.Errorf("expected nil workspace on error, got %v", ws)
+	}
+}
+
+// TestCreateWorkspace_QuotaExceeded verifies 429 error envelope is surfaced.
+func TestCreateWorkspace_QuotaExceeded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    "quota_exceeded",
+			"message": "Workspace quota reached",
+		})
+	}))
+	defer server.Close()
+
+	client := newTestAPIClient(server.URL)
+	_, err := client.CreateWorkspace("anything")
+
+	if err == nil {
+		t.Fatal("expected error on 429, got nil")
+	}
+	if !strings.Contains(err.Error(), "quota_exceeded") {
+		t.Errorf("expected quota_exceeded in error, got: %v", err)
 	}
 }
 
